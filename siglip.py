@@ -1,9 +1,10 @@
 """
-siglip.py (EC2 배포 안정 최종본)
+siglip.py (EC2 안정화 최종본)
 --------------------------------------------------
-✅ SigLIP(OpenCLIP) 모델 로드
-✅ image_to_vector(img) -> float32 numpy 벡터 반환
-✅ CPU/ CUDA 자동 선택
+✅ 서버 시작 시 모델 1회 로딩
+✅ 요청 시 재로딩 없음
+✅ CPU 강제 사용
+✅ 메모리 사용 최소화
 """
 
 import torch
@@ -11,19 +12,34 @@ import numpy as np
 from PIL import Image
 import open_clip
 
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+# ==============================
+# 환경 고정
+# ==============================
+DEVICE = "cpu"  # EC2에서는 무조건 CPU
 MODEL_NAME = "ViT-B-16-SigLIP-384"
-PRETRAINED = "webli"
 
-# ✅ 모델은 프로세스 시작 시 1회 로드
+# ==============================
+# 모델 1회 로딩 (서버 시작 시)
+# ==============================
+print("🔥 Loading SigLIP model (one-time)...")
+
 model, _, preprocess = open_clip.create_model_and_transforms(
     MODEL_NAME,
-    pretrained=PRETRAINED
+    pretrained="webli"
 )
-model = model.to(DEVICE).eval()
 
+model = model.to(DEVICE)
+model.eval()
 
+print("✅ SigLIP model loaded and ready")
+
+# ==============================
+# 이미지 → 벡터 변환
+# ==============================
 def image_to_vector(img: Image.Image) -> np.ndarray:
+    """
+    PIL Image → normalized embedding vector (float32)
+    """
     img = img.convert("RGB")
     img_t = preprocess(img).unsqueeze(0).to(DEVICE)
 

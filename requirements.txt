@@ -8,3 +8,5 @@ open-clip-torch
 faiss-cpu
 numpy
 Pillow
+
+packaging

@@ -50,10 +50,21 @@ async def pouch_search(file: UploadFile = File(...)):
         from search import search_image
         results = search_image(path, top_k=5)
 
+        if not results["matched"]:
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "message": "일치하는 화장품을 찾지 못했습니다.",
+                    "bestDistance": results["best"]["distance"]
+                    if results["best"] else None,
+                },
+            )
+
         return {
-            "top1": results[0] if results else None,
-            "top5": results,
+            "detectedId": results["best"]["product_id"],
+            "bestDistance": results["best"]["distance"],
         }
+
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

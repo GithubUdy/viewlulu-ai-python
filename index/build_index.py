@@ -1,11 +1,12 @@
 """
-build_index.py (FINAL)
+build_index.py (FINAL STABLE)
 --------------------------------------------------
 ✅ S3에서 화장품 그룹 이미지 로드
 ✅ SigLIP embedding 추출
-✅ 그룹 단위 평균 벡터 생성
-✅ FAISS index (product-level) 생성
+✅ 그룹 단위 평균 벡터 생성 (1:N → 1)
+✅ FAISS IndexFlatIP (cosine similarity)
 ✅ product_ids.npy 저장
+✅ search.py / siglip.py 와 완전 호환
 """
 
 import os
@@ -33,8 +34,11 @@ os.makedirs(INDEX_DIR, exist_ok=True)
 INDEX_PATH = os.path.join(INDEX_DIR, "siglip.index")
 IDS_PATH = os.path.join(INDEX_DIR, "product_ids.npy")
 
-# SigLIP embedding dim (open-clip ViT-B/16 = 512)
+# SigLIP embedding dim (ViT-B/16 = 512)
 EMBED_DIM = 512
+
+VALID_EXT = {"jpg", "jpeg", "png", "webp"}
+
 
 # ==================================================
 # AWS S3 Client
@@ -49,30 +53,31 @@ s3 = boto3.client("s3", region_name=AWS_REGION)
 
 def list_all_group_images():
     """
-    S3 전체를 스캔해서
-    group_id -> [image_keys] 형태로 반환
+    S3 전체 스캔
+    users/{userId}/cosmetics/{groupId}/{filename}
+    →
+    { groupId: [s3Key, ...] }
     """
     paginator = s3.get_paginator("list_objects_v2")
-
-    groups = {}
+    groups: dict[str, list[str]] = {}
 
     for page in paginator.paginate(Bucket=S3_BUCKET):
         for obj in page.get("Contents", []):
             key = obj["Key"]
 
-            # users/{userId}/cosmetics/{groupId}/{filename}
             parts = key.split("/")
             if len(parts) < 5:
                 continue
 
+            # users/{userId}/cosmetics/{groupId}/...
             if parts[2] != "cosmetics":
                 continue
 
-            group_id = parts[3]
             ext = key.lower().split(".")[-1]
-            if ext not in {"jpg", "jpeg", "png", "webp"}:
+            if ext not in VALID_EXT:
                 continue
 
+            group_id = parts[3]
             groups.setdefault(group_id, []).append(key)
 
     return groups
@@ -89,8 +94,8 @@ def load_image_from_s3(key: str) -> Image.Image:
 # ==================================================
 
 def build_index():
-    print("🔹 Loading SigLIP model...")
-    load_model()  # 🔥 1회 로드
+    print("🔹 Loading SigLIP model (1-time preload)...")
+    load_model()
 
     print("🔹 Scanning S3 for cosmetic groups...")
     groups = list_all_group_images()
@@ -100,8 +105,8 @@ def build_index():
 
     print(f"✅ Found {len(groups)} cosmetic groups")
 
-    vectors = []
-    product_ids = []
+    vectors: list[np.ndarray] = []
+    product_ids: list[str] = []
 
     for group_id, image_keys in tqdm(groups.items(), desc="Building index"):
         embeddings = []
@@ -118,30 +123,32 @@ def build_index():
             print(f"[SKIP] group {group_id} has no valid images")
             continue
 
-        # 🔥 핵심: 그룹 평균 벡터
-        group_vector = np.mean(embeddings, axis=0)
-        group_vector = group_vector / np.linalg.norm(group_vector)
+        # 🔥 핵심: 그룹 단위 평균 벡터 (1:N → 1)
+        group_vec = np.mean(embeddings, axis=0).astype("float32")
+        norm = np.linalg.norm(group_vec)
+        if norm > 0:
+            group_vec /= norm
 
-        vectors.append(group_vector)
-        product_ids.append(group_id)
+        vectors.append(group_vec)
+        product_ids.append(str(group_id))
 
     if not vectors:
         raise RuntimeError("No valid group vectors created")
 
-    vectors = np.vstack(vectors).astype("float32")
+    vectors_np = np.vstack(vectors).astype("float32")
 
-    print("🔹 Creating FAISS index...")
-    index = faiss.IndexFlatIP(EMBED_DIM)  # cosine similarity
-    index.add(vectors)
+    print("🔹 Creating FAISS index (IndexFlatIP)...")
+    index = faiss.IndexFlatIP(EMBED_DIM)
+    index.add(vectors_np)
 
     print("🔹 Saving index files...")
     faiss.write_index(index, INDEX_PATH)
-    np.save(IDS_PATH, np.array(product_ids))
+    np.save(IDS_PATH, np.array(product_ids, dtype=object))
 
     print("🎉 DONE")
     print(f"- index saved to: {INDEX_PATH}")
     print(f"- product ids saved to: {IDS_PATH}")
-    print(f"- total products indexed: {len(product_ids)}")
+    print(f"- total groups indexed: {len(product_ids)}")
 
 
 if __name__ == "__main__":

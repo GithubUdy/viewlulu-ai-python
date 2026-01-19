@@ -3,21 +3,30 @@ app.py (FINAL STABLE)
 --------------------------------------------------
 ✅ /pouch/search 기존 유지 (전체 DB 검색, 검증용)
 ✅ /pouch/group-search 사용자 파우치 기준 검색
-✅ XML / HTML / S3 Error 응답 방어 (imghdr)
+✅ XML / HTML / 깨진 파일 방어 (imghdr)
+✅ SigLIP startup preload (1회)
 ✅ 업로드 / 판정 / 결과 로그 출력
+✅ search.py / siglip.py 최종본과 완전 호환
 """
 
 import os
 import uuid
-import logging
 import json
 import imghdr
+import logging
 from typing import Dict, List
 
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 
+# ==================================================
+# Logging
+# ==================================================
 logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("app")
 
+# ==================================================
+# App
+# ==================================================
 app = FastAPI()
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -34,7 +43,7 @@ ALLOWED_EXT = {"jpg", "jpeg", "png", "webp"}
 def preload_models():
     from siglip import load_model
     load_model()
-    logging.info("[STARTUP] SigLIP model loaded")
+    logger.info("[STARTUP] SigLIP model preloaded")
 
 
 # ==================================================
@@ -58,25 +67,25 @@ async def pouch_search(file: UploadFile = File(...)):
     if ext not in ALLOWED_EXT:
         raise HTTPException(status_code=400, detail=f"Unsupported file type: {ext}")
 
-    fname = f"{uuid.uuid4()}.{ext}"
-    path = os.path.join(UPLOAD_DIR, fname)
+    tmp_name = f"{uuid.uuid4()}.{ext}"
+    tmp_path = os.path.join(UPLOAD_DIR, tmp_name)
 
     try:
         content = await file.read()
         if not content:
             raise HTTPException(status_code=400, detail="Empty file")
 
-        with open(path, "wb") as f:
+        with open(tmp_path, "wb") as f:
             f.write(content)
 
-        logging.info(
+        logger.info(
             "[UPLOAD][SEARCH] filename=%s size=%d",
             filename,
             len(content),
         )
 
-        kind = imghdr.what(path)
-        logging.info("[IMAGE_CHECK][SEARCH] kind=%s", kind)
+        kind = imghdr.what(tmp_path)
+        logger.info("[IMAGE_CHECK][SEARCH] kind=%s", kind)
 
         if kind is None:
             raise HTTPException(
@@ -85,16 +94,16 @@ async def pouch_search(file: UploadFile = File(...)):
             )
 
         from search import search_image
-        results = search_image(path, top_k=5)
+        results = search_image(tmp_path, top_k=5)
 
         best = results.get("best")
 
-        logging.info(
+        logger.info(
             "[RESULT][SEARCH] matched=%s product_id=%s similarity=%.4f distance=%.4f",
             results["matched"],
             best["product_id"] if best else None,
-            best["similarity"] if best else -1,
-            best["distance"] if best else -1,
+            best["similarity"] if best else -1.0,
+            best["distance"] if best else -1.0,
         )
 
         if not results["matched"]:
@@ -111,8 +120,8 @@ async def pouch_search(file: UploadFile = File(...)):
         }
 
     finally:
-        if os.path.exists(path):
-            os.remove(path)
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
 
 
 # ==================================================
@@ -136,18 +145,18 @@ async def pouch_group_search(
     if ext not in ALLOWED_EXT:
         raise HTTPException(status_code=400, detail=f"Unsupported file type: {ext}")
 
-    fname = f"{uuid.uuid4()}.{ext}"
-    path = os.path.join(UPLOAD_DIR, fname)
+    tmp_name = f"{uuid.uuid4()}.{ext}"
+    tmp_path = os.path.join(UPLOAD_DIR, tmp_name)
 
     try:
         content = await file.read()
         if not content:
             raise HTTPException(status_code=400, detail="Empty file")
 
-        with open(path, "wb") as f:
+        with open(tmp_path, "wb") as f:
             f.write(content)
 
-        logging.info(
+        logger.info(
             "[UPLOAD][GROUP] filename=%s size=%d groups=%d",
             filename,
             len(content),
@@ -155,10 +164,10 @@ async def pouch_group_search(
         )
 
         # --------------------------------------------------
-        # 🔥 XML / HTML / 깨진 파일 방어
+        # XML / HTML / 깨진 파일 방어
         # --------------------------------------------------
-        kind = imghdr.what(path)
-        logging.info("[IMAGE_CHECK][GROUP] kind=%s", kind)
+        kind = imghdr.what(tmp_path)
+        logger.info("[IMAGE_CHECK][GROUP] kind=%s", kind)
 
         if kind is None:
             raise HTTPException(
@@ -172,22 +181,22 @@ async def pouch_group_search(
         from search import search_image_with_groups
 
         result = search_image_with_groups(
-            image_path=path,
+            image_path=tmp_path,
             groups=group_dict,
         )
 
-        logging.info(
+        logger.info(
             "[RESULT][GROUP] matched=%s group_id=%s score=%.4f",
             result["matched"],
             result.get("group_id"),
-            result.get("score", -1),
+            result.get("score", -1.0),
         )
 
         if not result["matched"]:
             return {
                 "matched": False,
                 "message": "일치하는 화장품을 찾지 못했습니다.",
-                "score" : result.get("score"),
+                "score": result.get("score"),
             }
 
         return {
@@ -197,5 +206,5 @@ async def pouch_group_search(
         }
 
     finally:
-        if os.path.exists(path):
-            os.remove(path)
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)

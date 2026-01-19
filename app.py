@@ -35,7 +35,6 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 ALLOWED_EXT = {"jpg", "jpeg", "png", "webp"}
 
-
 # ==================================================
 # Startup: preload SigLIP model (1회)
 # ==================================================
@@ -45,14 +44,12 @@ def preload_models():
     load_model()
     logger.info("[STARTUP] SigLIP model preloaded")
 
-
 # ==================================================
 # Health check
 # ==================================================
 @app.get("/")
 def health():
     return {"status": "ok"}
-
 
 # ==================================================
 # (기존 유지) 전체 DB 기반 검색
@@ -78,20 +75,13 @@ async def pouch_search(file: UploadFile = File(...)):
         with open(tmp_path, "wb") as f:
             f.write(content)
 
-        logger.info(
-            "[UPLOAD][SEARCH] filename=%s size=%d",
-            filename,
-            len(content),
-        )
+        logger.info("[UPLOAD][SEARCH] filename=%s size=%d", filename, len(content))
 
         kind = imghdr.what(tmp_path)
         logger.info("[IMAGE_CHECK][SEARCH] kind=%s", kind)
 
         if kind is None:
-            raise HTTPException(
-                status_code=400,
-                detail="Uploaded file is not a valid image"
-            )
+            raise HTTPException(status_code=400, detail="Uploaded file is not a valid image")
 
         from search import search_image
         results = search_image(tmp_path, top_k=5)
@@ -123,24 +113,30 @@ async def pouch_search(file: UploadFile = File(...)):
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
 
-from fastapi import Body
 # ==================================================
-# 🔥 사용자 파우치 그룹 전용 검색 (최종)
+# 🔥 사용자 파우치 그룹 전용 검색 (최종 / 수정 완료)
 # ==================================================
 @app.post("/pouch/group-search")
 async def pouch_group_search(
     file: UploadFile = File(...),
-    groups: Dict[str, List[str]] = Body(...),
+    groups: str = Form(...),   # ✅ 반드시 Form
 ):
-    print("🔥 GROUP SEARCH HIT 🔥", len(groups))
-    print (" Group Search Requested !!!!!!!!")
     if not file:
         raise HTTPException(status_code=400, detail="file is required")
 
     try:
-        group_dict = groups
-    except Exception:
-        raise HTTPException(status_code=400, detail="groups must be valid JSON")
+        group_dict: Dict[str, List[str]] = json.loads(groups)
+    except Exception as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"groups must be valid JSON string ({e})"
+        )
+
+    logger.info(
+        "[GROUP_SEARCH][REQUEST_OK] groups=%d file=%s",
+        len(group_dict),
+        file.filename,
+    )
 
     filename = file.filename or ""
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
@@ -165,21 +161,12 @@ async def pouch_group_search(
             len(group_dict),
         )
 
-        # --------------------------------------------------
-        # XML / HTML / 깨진 파일 방어
-        # --------------------------------------------------
         kind = imghdr.what(tmp_path)
         logger.info("[IMAGE_CHECK][GROUP] kind=%s", kind)
 
         if kind is None:
-            raise HTTPException(
-                status_code=400,
-                detail="Uploaded file is not a valid image"
-            )
+            raise HTTPException(status_code=400, detail="Uploaded file is not a valid image")
 
-        # --------------------------------------------------
-        # 그룹 기준 검색
-        # --------------------------------------------------
         from search import search_image_with_groups
 
         result = search_image_with_groups(

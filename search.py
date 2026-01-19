@@ -40,7 +40,7 @@ IDS_PATH = os.path.join(BASE_DIR, "index", "product_ids.npy")
 # ==================================================
 
 # cosine similarity 기준
-SIMILARITY_THRESHOLD = 0.65
+SIMILARITY_THRESHOLD = 0.3
 TOP_K = 5
 
 

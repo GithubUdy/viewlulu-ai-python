@@ -72,7 +72,7 @@ INDEX, PRODUCT_IDS = _load_assets()
 # ==================================================
 # (기존 유지) 전체 DB 검색 ❌ 변경 금지
 # ==================================================
-def search_image(image_path: str, top_k: int = TOP_K):
+def search_image(image_path: str, top_k: int):
     img = Image.open(image_path).convert("RGB")
     q = image_to_vector(img).reshape(1, -1)
 

@@ -132,6 +132,7 @@ async def pouch_group_search(
     file: UploadFile = File(...),
     groups: str = Form(...),
 ):
+    print (" Group Search Requested !!!!!!!!")
     if not file:
         raise HTTPException(status_code=400, detail="file is required")
 

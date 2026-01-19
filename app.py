@@ -1,3 +1,12 @@
+"""
+app.py (FINAL STABLE)
+--------------------------------------------------
+✅ /pouch/search 기존 유지 (전체 DB 검색, 검증용)
+✅ /pouch/group-search 사용자 파우치 기준 검색
+✅ XML / HTML / S3 Error 응답 방어 (imghdr)
+✅ 업로드 / 판정 / 결과 로그 출력
+"""
+
 import os
 import uuid
 import logging
@@ -24,7 +33,8 @@ ALLOWED_EXT = {"jpg", "jpeg", "png", "webp"}
 @app.on_event("startup")
 def preload_models():
     from siglip import load_model
-    load_model()   # 🔥 서버 시작 시 1회만 실행
+    load_model()
+    logging.info("[STARTUP] SigLIP model loaded")
 
 
 # ==================================================
@@ -46,10 +56,7 @@ async def pouch_search(file: UploadFile = File(...)):
     filename = file.filename or ""
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
     if ext not in ALLOWED_EXT:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unsupported file type: {ext}",
-        )
+        raise HTTPException(status_code=400, detail=f"Unsupported file type: {ext}")
 
     fname = f"{uuid.uuid4()}.{ext}"
     path = os.path.join(UPLOAD_DIR, fname)
@@ -62,46 +69,46 @@ async def pouch_search(file: UploadFile = File(...)):
         with open(path, "wb") as f:
             f.write(content)
 
-        # --------------------------------------------------
-        # 🔥 이미지 유효성 검증 (S3 XML / HTML 방어)
-        # --------------------------------------------------
+        logging.info(
+            "[UPLOAD][SEARCH] filename=%s size=%d",
+            filename,
+            len(content),
+        )
+
         kind = imghdr.what(path)
+        logging.info("[IMAGE_CHECK][SEARCH] kind=%s", kind)
+
         if kind is None:
             raise HTTPException(
                 status_code=400,
                 detail="Uploaded file is not a valid image"
             )
 
-        # --------------------------------------------------
-        # 정상 이미지일 때만 검색 진행
-        # --------------------------------------------------
         from search import search_image
         results = search_image(path, top_k=5)
 
+        best = results.get("best")
+
+        logging.info(
+            "[RESULT][SEARCH] matched=%s product_id=%s similarity=%.4f distance=%.4f",
+            results["matched"],
+            best["product_id"] if best else None,
+            best["similarity"] if best else -1,
+            best["distance"] if best else -1,
+        )
 
         if not results["matched"]:
             return {
                 "matched": False,
                 "message": "일치하는 화장품을 찾지 못했습니다.",
-                "bestDistance": (
-                    results["best"]["distance"]
-                    if results.get("best")
-                    else None
-                ),
+                "bestDistance": best["distance"] if best else None,
             }
 
         return {
             "matched": True,
-            "detectedId": results["best"]["product_id"],
-            "bestDistance": results["best"]["distance"],
+            "detectedId": best["product_id"],
+            "bestDistance": best["distance"],
         }
-
-    except HTTPException:
-        raise
-
-    except Exception as e:
-        logging.exception("Unexpected error during pouch_search")
-        raise HTTPException(status_code=500, detail=str(e))
 
     finally:
         if os.path.exists(path):
@@ -109,21 +116,13 @@ async def pouch_search(file: UploadFile = File(...)):
 
 
 # ==================================================
-# 🔥 신규: 파우치 그룹 전용 검색 (정답 구조)
+# 🔥 사용자 파우치 그룹 전용 검색 (최종)
 # ==================================================
 @app.post("/pouch/group-search")
 async def pouch_group_search(
     file: UploadFile = File(...),
     groups: str = Form(...),
 ):
-    """
-    groups (JSON string):
-    {
-      "12": ["/tmp/a.jpg", "/tmp/b.jpg"],
-      "15": ["/tmp/c.jpg", "/tmp/d.jpg"]
-    }
-    """
-
     if not file:
         raise HTTPException(status_code=400, detail="file is required")
 
@@ -148,11 +147,40 @@ async def pouch_group_search(
         with open(path, "wb") as f:
             f.write(content)
 
+        logging.info(
+            "[UPLOAD][GROUP] filename=%s size=%d groups=%d",
+            filename,
+            len(content),
+            len(group_dict),
+        )
+
+        # --------------------------------------------------
+        # 🔥 XML / HTML / 깨진 파일 방어
+        # --------------------------------------------------
+        kind = imghdr.what(path)
+        logging.info("[IMAGE_CHECK][GROUP] kind=%s", kind)
+
+        if kind is None:
+            raise HTTPException(
+                status_code=400,
+                detail="Uploaded file is not a valid image"
+            )
+
+        # --------------------------------------------------
+        # 그룹 기준 검색
+        # --------------------------------------------------
         from search import search_image_with_groups
 
         result = search_image_with_groups(
             image_path=path,
             groups=group_dict,
+        )
+
+        logging.info(
+            "[RESULT][GROUP] matched=%s group_id=%s score=%.4f",
+            result["matched"],
+            result.get("group_id"),
+            result.get("score", -1),
         )
 
         if not result["matched"]:
@@ -166,13 +194,6 @@ async def pouch_group_search(
             "detectedGroupId": result["group_id"],
             "score": result["score"],
         }
-
-    except HTTPException:
-        raise
-
-    except Exception as e:
-        logging.exception("Unexpected error during pouch_group_search")
-        raise HTTPException(status_code=500, detail=str(e))
 
     finally:
         if os.path.exists(path):

@@ -123,21 +123,22 @@ async def pouch_search(file: UploadFile = File(...)):
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
 
-
+from fastapi import Body
 # ==================================================
 # 🔥 사용자 파우치 그룹 전용 검색 (최종)
 # ==================================================
 @app.post("/pouch/group-search")
 async def pouch_group_search(
     file: UploadFile = File(...),
-    groups: str = Form(...),
+    groups: Dict[str, List[str]] = Body(...),
 ):
+    print("🔥 GROUP SEARCH HIT 🔥", len(groups))
     print (" Group Search Requested !!!!!!!!")
     if not file:
         raise HTTPException(status_code=400, detail="file is required")
 
     try:
-        group_dict: Dict[str, List[str]] = json.loads(groups)
+        group_dict = groups
     except Exception:
         raise HTTPException(status_code=400, detail="groups must be valid JSON")
 

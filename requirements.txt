@@ -1,7 +1,10 @@
 fastapi
-uvicorn
+uvicorn[standard]
+python-multipart
 torch
-torchvision
-pillow
+open-clip-torch
+faiss-cpu
 numpy
-requests
+Pillow
+packaging
+opencv-python

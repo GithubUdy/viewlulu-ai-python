@@ -1,17 +1,17 @@
 """
 search.py (FINAL)
 --------------------------------------------------
-✅ FAISS index preload
+✅ FAISS index preload (기존 유지)
 ✅ SigLIP embedding 사용
-✅ similarity / distance 명확 분리
-✅ match 판단을 Python에서 수행
-✅ EC2 / 실행 위치 무관 경로 안정
+✅ 전체 DB 검색 + 그룹 단위 검색 공존
+✅ 그룹 비교는 "상위 2개 평균" 방식
 """
 
 import os
 import faiss
 import numpy as np
 from PIL import Image
+from typing import Dict, List
 
 from siglip import image_to_vector
 
@@ -28,7 +28,7 @@ IDS_PATH = os.path.join(BASE_DIR, "index", "product_ids.npy")
 # Search Config
 # ===============================
 
-SIMILARITY_THRESHOLD = 0.3   # 🔥 실서비스 기준 안정값 (0.7 ~ 0.8)
+SIMILARITY_THRESHOLD = 0.75  # 기존 유지
 
 # ===============================
 # Load Assets (1회)
@@ -47,47 +47,37 @@ def _load_assets():
     return index, product_ids
 
 
-# 🔥 서버 시작 시 1회 로드
 INDEX, PRODUCT_IDS = _load_assets()
 
 # ===============================
-# Search Logic
+# Utility
+# ===============================
+
+def cosine_distance(a: np.ndarray, b: np.ndarray) -> float:
+    return float(1.0 - np.dot(a, b))
+
+
+def avg_of_best_two(distances: List[float]) -> float:
+    if not distances:
+        return float("inf")
+    if len(distances) == 1:
+        return distances[0]
+
+    sorted_d = sorted(distances)
+    return (sorted_d[0] + sorted_d[1]) / 2
+
+
+# ===============================
+# 기존: 전체 DB 검색 (유지)
 # ===============================
 
 def search_image(image_path: str, top_k: int = 5):
-    """
-    업로드된 이미지 경로를 받아
-    FAISS + SigLIP 기반으로 유사 화장품 검색
-
-    return:
-    {
-        "matched": bool,
-        "best": {
-            "product_id": str,
-            "similarity": float,
-            "distance": float
-        } | None,
-        "results": [
-            {
-                "product_id": str,
-                "similarity": float,
-                "distance": float
-            },
-            ...
-        ]
-    }
-    """
-
     if top_k <= 0:
         top_k = 5
 
-    # 1️⃣ 이미지 로드
     img = Image.open(image_path).convert("RGB")
-
-    # 2️⃣ SigLIP embedding
     q = image_to_vector(img).reshape(1, -1)
 
-    # 3️⃣ FAISS 검색 (cosine similarity)
     sims, idxs = INDEX.search(q, top_k)
 
     results = []
@@ -103,25 +93,58 @@ def search_image(image_path: str, top_k: int = 5):
             "distance": float(1.0 - sim),
         })
 
-    # 4️⃣ 결과 판단
     best = results[0] if results else None
 
-    if not best:
-        return {
-            "matched": False,
-            "best": None,
-            "results": results,
-        }
+    if not best or best["similarity"] < SIMILARITY_THRESHOLD:
+        return {"matched": False, "best": best, "results": results}
 
-    if best["similarity"] < SIMILARITY_THRESHOLD:
-        return {
-            "matched": False,
-            "best": best,
-            "results": results,
-        }
+    return {"matched": True, "best": best, "results": results}
+
+
+# ===============================
+# 🔥 신규: 그룹 단위 비교 (파우치 전용)
+# ===============================
+
+def search_image_with_groups(
+    image_path: str,
+    groups: Dict[str, List[str]],
+):
+    """
+    groups = {
+        "12": ["img1.jpg", "img2.jpg"],
+        "15": ["img1.jpg", "img2.jpg", "img3.jpg"]
+    }
+    """
+
+    img = Image.open(image_path).convert("RGB")
+    query_vec = image_to_vector(img)
+
+    best_group_id = None
+    best_score = float("inf")
+
+    for group_id, image_paths in groups.items():
+        distances: List[float] = []
+
+        for path in image_paths:
+            try:
+                g_img = Image.open(path).convert("RGB")
+                g_vec = image_to_vector(g_img)
+                dist = cosine_distance(query_vec, g_vec)
+                distances.append(dist)
+            except Exception:
+                continue
+
+        if not distances:
+            continue
+
+        group_score = avg_of_best_two(distances)
+
+        if group_score < best_score:
+            best_score = group_score
+            best_group_id = group_id
 
     return {
-        "matched": True,
-        "best": best,
-        "results": results,
+        "matched": best_group_id is not None,
+        "group_id": best_group_id,
+        "score": best_score,
     }

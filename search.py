@@ -107,7 +107,7 @@ def _embed_image_path(image_path: str):
     img = Image.open(image_path).convert("RGB")
     vec = image_to_vector(img)
     vec = vec / np.linalg.norm(vec)
-    return vec.reshape(1, -1)
+    return vec.reshape(-1)
 
 
 

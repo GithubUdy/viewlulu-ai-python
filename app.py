@@ -2,6 +2,7 @@ import os
 import uuid
 import logging
 import json
+import imghdr
 from typing import Dict, List
 
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
@@ -61,8 +62,22 @@ async def pouch_search(file: UploadFile = File(...)):
         with open(path, "wb") as f:
             f.write(content)
 
+        # --------------------------------------------------
+        # 🔥 이미지 유효성 검증 (S3 XML / HTML 방어)
+        # --------------------------------------------------
+        kind = imghdr.what(path)
+        if kind is None:
+            raise HTTPException(
+                status_code=400,
+                detail="Uploaded file is not a valid image"
+            )
+
+        # --------------------------------------------------
+        # 정상 이미지일 때만 검색 진행
+        # --------------------------------------------------
         from search import search_image
         results = search_image(path, top_k=5)
+
 
         if not results["matched"]:
             return {

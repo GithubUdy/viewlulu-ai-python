@@ -112,7 +112,10 @@ def _embed_image_path(image_path: str):
 
 
 # ==================================================
-# 🔥 사용자 파우치 그룹 검색 (최종 핵심)
+# 🔥 사용자 파우치 그룹 검색 (FINAL)
+# - FAISS = 후보 축소용 (threshold ❌)
+# - 정확도 판단 = 그룹 내부 직접 비교
+# - FAISS 후보 0개면 전체 그룹 fallback
 # ==================================================
 def search_image_with_groups(image_path: str, groups: dict):
     """
@@ -140,30 +143,35 @@ def search_image_with_groups(image_path: str, groups: dict):
     q = _embed_image_path(image_path)
 
     # --------------------------------------------------
-    # 2️⃣ FAISS 후보 그룹 검색 (🔥 핵심)
+    # 2️⃣ FAISS 후보 그룹 검색 (🔥 후보 축소 ONLY)
     # --------------------------------------------------
-    q2 = q.reshape(1, -1)
-    sims, idxs = INDEX.search(q2, min(FAISS_TOP_K, INDEX.ntotal))
-
     candidate_group_ids = []
-    for idx in idxs[0]:
-        if idx < 0:
-            continue
-        gid = str(PRODUCT_IDS[int(idx)])
-        if gid in groups:
-            candidate_group_ids.append(gid)
 
-    logger.info(
-        "[GROUP_SEARCH][FAISS] candidates=%s",
-        candidate_group_ids,
-    )
+    if INDEX is not None and INDEX.ntotal > 0:
+        q2 = q.reshape(1, -1)
+        sims, idxs = INDEX.search(q2, min(FAISS_TOP_K, INDEX.ntotal))
 
+        for idx in idxs[0]:
+            if idx < 0:
+                continue
+            gid = str(PRODUCT_IDS[int(idx)])
+            if gid in groups and gid not in candidate_group_ids:
+                candidate_group_ids.append(gid)
+
+    # 🔥 FAISS 후보 없으면 전체 그룹 fallback
     if not candidate_group_ids:
-        logger.info("[GROUP_SEARCH][RESULT] no candidates")
-        return {"matched": False, "group_id": None, "score": -1.0}
+        logger.info(
+            "[GROUP_SEARCH][FAISS] empty → fallback to all groups"
+        )
+        candidate_group_ids = list(groups.keys())
+    else:
+        logger.info(
+            "[GROUP_SEARCH][FAISS] candidates=%s",
+            candidate_group_ids,
+        )
 
     # --------------------------------------------------
-    # 3️⃣ 후보 그룹만 1:4 비교
+    # 3️⃣ 그룹 내부 직접 비교 (🔥 정확도 핵심)
     # --------------------------------------------------
     group_scores = []
 
@@ -174,7 +182,7 @@ def search_image_with_groups(image_path: str, groups: dict):
         for img_path in image_paths:
             try:
                 v = _embed_image_path(img_path)
-                sim = float(np.dot(q, v))
+                sim = float(np.dot(q, v))  # cosine similarity
                 scores.append(sim)
             except Exception as e:
                 logger.warning(
@@ -200,6 +208,7 @@ def search_image_with_groups(image_path: str, groups: dict):
         group_scores.append({
             "group_id": group_id,
             "max": max_score,
+            "avg": avg_score,
         })
 
     if not group_scores:

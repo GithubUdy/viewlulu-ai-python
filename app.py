@@ -187,6 +187,7 @@ async def pouch_group_search(
             return {
                 "matched": False,
                 "message": "일치하는 화장품을 찾지 못했습니다.",
+                "score" : result.get("score"),
             }
 
         return {

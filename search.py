@@ -103,6 +103,13 @@ def search_image(image_path: str, top_k: int):
 
     return {"matched": True, "best": best, "results": results}
 
+def _embed_image_path(image_path: str):
+    img = Image.open(image_path).convert("RGB")
+    vec = image_to_vector(img)
+    vec = vec / np.linalg.norm(vec)
+    return vec.reshape(1, -1)
+
+
 
 # ==================================================
 # 🔥 사용자 파우치 그룹 검색 (최종 핵심)

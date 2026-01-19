@@ -28,7 +28,7 @@ IDS_PATH = os.path.join(BASE_DIR, "index", "product_ids.npy")
 # Search Config
 # ===============================
 
-SIMILARITY_THRESHOLD = 0.75   # 🔥 실서비스 기준 안정값 (0.7 ~ 0.8)
+SIMILARITY_THRESHOLD = 0.3   # 🔥 실서비스 기준 안정값 (0.7 ~ 0.8)
 
 # ===============================
 # Load Assets (1회)

@@ -121,27 +121,39 @@ def search_image(image_path: str, top_k: int = TOP_K):
         "results": results,
     }
 
+# ==================================================
+# Logger
+# ==================================================
+logger = logging.getLogger(__name__)
+
+
+# ==================================================
+# Threshold Config (🔥 핵심)
+# ==================================================
+
+# 절대 최소 점수 (이보다 낮으면 무조건 실패)
+MIN_THRESHOLD = 0.45
+
+# 1등과 2등 점수 차이 (확신도)
+GAP_THRESHOLD = 0.07
+
 
 # ==================================================
 # 🔥 사용자 파우치 그룹 검색 (Node 연동용)
 # ==================================================
-
-def search_image_with_groups(
-    image_path: str,
-    groups: dict,
-):
+def search_image_with_groups(image_path: str, groups: dict):
     """
-    image_path: 업로드된 이미지 경로
+    image_path: 촬영 이미지 경로
     groups: {
-        "12": ["s3Key1", "s3Key2"],
-        "15": ["s3Key3", "s3Key4"]
+        "12": ["img1.jpg", "img2.jpg", "img3.jpg", "img4.jpg"],
+        ...
     }
 
     return:
     {
         "matched": bool,
         "group_id": str | None,
-        "score": float | None
+        "score": float
     }
     """
 
@@ -151,85 +163,100 @@ def search_image_with_groups(
         os.path.basename(image_path),
     )
 
-    # ------------------------------
-    # 1️⃣ query embedding
-    # ------------------------------
+    # --------------------------------------------------
+    # 1️⃣ Query embedding (1회)
+    # --------------------------------------------------
     img = Image.open(image_path).convert("RGB")
     q = image_to_vector(img)
+    q = q / np.linalg.norm(q)
 
-    best_group_id = None
-    best_score = -1.0
+    group_scores = []
 
-    # ------------------------------
-    # 2️⃣ 그룹별 평균 벡터와 cosine similarity
-    # ------------------------------
-    for group_id, image_keys in groups.items():
-        vectors = []
+    # --------------------------------------------------
+    # 2️⃣ 그룹별 1:4 비교 (max 기준)
+    # --------------------------------------------------
+    for group_id, image_paths in groups.items():
+        scores = []
 
-        for key in image_keys:
+        for img_path in image_paths:
             try:
-                # ⚠️ build_index와 동일한 방식으로
-                # S3 이미지들은 이미 index에 반영됨
-                # 여기서는 group_id 기준 비교만 수행
-                idxs = np.where(PRODUCT_IDS == str(group_id))[0]
-                if len(idxs) == 0:
-                    continue
+                img = Image.open(img_path).convert("RGB")
+                v = image_to_vector(img)
+                v = v / np.linalg.norm(v)
 
-                vec = INDEX.reconstruct(int(idxs[0]))
-                vectors.append(vec)
+                sim = float(np.dot(q, v))
+                scores.append(sim)
+
+                logger.debug(
+                    "[GROUP_SEARCH][SCORE] group=%s img=%s sim=%.4f",
+                    group_id,
+                    os.path.basename(img_path),
+                    sim,
+                )
 
             except Exception as e:
                 logger.warning(
-                    "[GROUP_SEARCH][WARN] group=%s key=%s error=%s",
+                    "[GROUP_SEARCH][IMAGE_FAIL] group=%s img=%s err=%s",
                     group_id,
-                    key,
+                    img_path,
                     str(e),
                 )
 
-        if not vectors:
-            logger.debug(
-                "[GROUP_SEARCH][SKIP] group=%s no vectors",
-                group_id,
-            )
+        if not scores:
             continue
 
-        group_vec = np.mean(vectors, axis=0)
-        group_vec = group_vec / np.linalg.norm(group_vec)
+        max_score = max(scores)
+        avg_score = sum(scores) / len(scores)
 
-        score = float(np.dot(q, group_vec))
-
-        logger.debug(
-            "[GROUP_SEARCH][CANDIDATE] group=%s score=%.4f",
+        logger.info(
+            "[GROUP_SEARCH][GROUP_SUMMARY] group=%s max=%.4f avg=%.4f",
             group_id,
-            score,
+            max_score,
+            avg_score,
         )
 
-        if score > best_score:
-            best_score = score
-            best_group_id = group_id
+        group_scores.append({
+            "group_id": group_id,
+            "max": max_score,
+        })
 
-    # ------------------------------
-    # 3️⃣ 판정
-    # ------------------------------
-    matched = best_score >= SIMILARITY_THRESHOLD
-
-    logger.info(
-        "[GROUP_SEARCH][RESULT] matched=%s group=%s score=%.4f threshold=%.2f",
-        matched,
-        best_group_id,
-        best_score,
-        SIMILARITY_THRESHOLD,
-    )
-
-    if not matched:
+    if not group_scores:
+        logger.info("[GROUP_SEARCH][RESULT] no valid groups")
         return {
             "matched": False,
             "group_id": None,
-            "score": best_score,
+            "score": -1.0,
         }
 
+    # --------------------------------------------------
+    # 3️⃣ 자동 튜닝 판정 (🔥 핵심)
+    # --------------------------------------------------
+    group_scores.sort(key=lambda x: x["max"], reverse=True)
+
+    best = group_scores[0]
+    second = group_scores[1] if len(group_scores) > 1 else None
+
+    best_score = best["max"]
+    gap = best_score - (second["max"] if second else 0.0)
+
+    matched = (
+        best_score >= MIN_THRESHOLD and
+        gap >= GAP_THRESHOLD
+    )
+
+    logger.info(
+        "[GROUP_SEARCH][DECISION] matched=%s best=%s score=%.4f gap=%.4f "
+        "min_th=%.2f gap_th=%.2f",
+        matched,
+        best["group_id"],
+        best_score,
+        gap,
+        MIN_THRESHOLD,
+        GAP_THRESHOLD,
+    )
+
     return {
-        "matched": True,
-        "group_id": best_group_id,
+        "matched": matched,
+        "group_id": best["group_id"] if matched else None,
         "score": best_score,
     }

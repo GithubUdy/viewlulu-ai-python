@@ -6,23 +6,22 @@ import tempfile
 # Whisper STT Core Logic
 # ==================================================
 
-# 🔥 서버 시작 시 1회만 로딩 (필수)
-# tiny / base / small 가능
+# 🔥 서버 시작 시 1회만 로딩
 model = whisper.load_model("tiny")
 
 def transcribe_audio(file_bytes: bytes, filename: str):
     """
     📌 Whisper 음성 인식 처리
-    - bytes → 임시 wav 파일 저장
-    - Whisper는 반드시 '파일 경로'를 입력으로 받음
+    - bytes → 임시 wav 파일
+    - Whisper는 파일 경로만 허용
     """
 
-    # 1️⃣ 확장자 보정 (filename 없거나 이상한 경우 대비)
+    # 1️⃣ 확장자 보정
     suffix = os.path.splitext(filename)[1]
     if not suffix:
         suffix = ".wav"
 
-    # 2️⃣ tmp 디렉토리 보장 (pm2 / docker 환경 대비)
+    # 2️⃣ tmp 디렉토리 보장
     os.makedirs("tmp", exist_ok=True)
 
     # 3️⃣ 임시 파일 생성
@@ -32,11 +31,12 @@ def transcribe_audio(file_bytes: bytes, filename: str):
         dir="tmp"
     ) as tmp:
         tmp.write(file_bytes)
-        tmp.flush()              # 🔥 중요: 디스크 flush
+        tmp.flush()
+        os.fsync(tmp.fileno())   # 🔥 디스크 강제 sync
         tmp_path = tmp.name
 
     try:
-        # 4️⃣ Whisper 실행 (경로 기반)
+        # 4️⃣ Whisper 실행
         result = model.transcribe(tmp_path, language="ko")
         text = result.get("text", "").strip()
 
@@ -52,7 +52,7 @@ def transcribe_audio(file_bytes: bytes, filename: str):
         }
 
     finally:
-        # 5️⃣ 임시 파일 정리 (누락 방지)
+        # 5️⃣ 임시 파일 정리
         try:
             os.remove(tmp_path)
         except Exception:

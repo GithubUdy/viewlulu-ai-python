@@ -7,7 +7,7 @@ import tempfile
 # ==================================================
 
 # 🔥 서버 시작 시 1회만 로딩
-model = whisper.load_model("tiny")
+model = whisper.load_model("base")
 
 def transcribe_audio(file_bytes: bytes, filename: str):
     """

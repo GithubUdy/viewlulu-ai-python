@@ -199,16 +199,32 @@ async def pouch_group_search(
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
 
+# ==================================================
 @app.post("/stt/whisper")
 async def whisper_stt(file: UploadFile = File(...)):
-    if not file.content_type.startswith("audio/"):
+    """
+    📌 Whisper STT 엔드포인트
+    - audio/* 타입 파일만 허용
+    - 파일을 bytes 로 읽어서 Whisper 처리
+    """
+
+    # 1️⃣ Content-Type 검증 (RN / curl 모두 안전)
+    if not file.content_type or not file.content_type.startswith("audio/"):
         raise HTTPException(status_code=400, detail="Invalid audio file")
 
+    # 2️⃣ 파일 전체를 bytes 로 읽기
     audio_bytes = await file.read()
+    if not audio_bytes:
+        raise HTTPException(status_code=400, detail="Empty audio file")
 
-    result = transcribe_audio(audio_bytes, file.filename)
+    try:
+        # 3️⃣ Whisper 처리
+        result = transcribe_audio(audio_bytes, file.filename)
+        return {
+            "text": result["text"],
+            "contains_chalkak": result["contains_chalkak"],
+        }
 
-    return {
-        "text": result["text"],
-        "contains_chalkak": result["contains_chalkak"],
-    }
+    except Exception as e:
+        print("🔥 Whisper STT Error:", e)
+        raise HTTPException(status_code=400, detail="Invalid audio file")

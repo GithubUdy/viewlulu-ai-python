@@ -17,6 +17,7 @@ import logging
 from typing import Dict, List
 
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from whisper_stt import transcribe_audio
 
 # ==================================================
 # Logging
@@ -197,3 +198,17 @@ async def pouch_group_search(
     finally:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
+
+@app.post("/stt/whisper")
+async def whisper_stt(file: UploadFile = File(...)):
+    if not file.content_type.startswith("audio/"):
+        raise HTTPException(status_code=400, detail="Invalid audio file")
+
+    audio_bytes = await file.read()
+
+    result = transcribe_audio(audio_bytes, file.filename)
+
+    return {
+        "text": result["text"],
+        "contains_chalkak": result["contains_chalkak"],
+    }

@@ -3,7 +3,7 @@ import os
 import tempfile
 
 # 서버 시작 시 1회 로딩
-model = whisper.load_model("base")  # tiny / base / small 가능
+model = whisper.load_model("tiny")  # tiny / base / small 가능
 
 def transcribe_audio(file_bytes: bytes, filename: str):
     suffix = os.path.splitext(filename)[1]

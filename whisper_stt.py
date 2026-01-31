@@ -20,7 +20,9 @@ def transcribe_audio(file_bytes: bytes, filename: str):
             "text": text,
             "contains_chalkak": (
                 "찰칵" in text or
-                "찍어" in text or
+                "김치" in text or
+                "치즈" in text or
+                "브이" in text or
                 "사진" in text
             )
         }

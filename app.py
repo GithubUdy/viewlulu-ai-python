@@ -199,29 +199,29 @@ async def pouch_group_search(
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
 
-# ==================================================
-@app.post("/stt/whisper")
-async def whisper_stt(file: UploadFile = File(...)):
-    """
-    📌 Whisper STT 엔드포인트
-    - content-type 검증 ❌ (curl / RN 환경에서 부정확)
-    - Whisper 처리 실패 시에만 Invalid audio 판단
-    """
+# # ==================================================
+# @app.post("/stt/whisper")
+# async def whisper_stt(file: UploadFile = File(...)):
+#     """
+#     📌 Whisper STT 엔드포인트
+#     - content-type 검증 ❌ (curl / RN 환경에서 부정확)
+#     - Whisper 처리 실패 시에만 Invalid audio 판단
+#     """
 
-    # 1️⃣ 파일 bytes 읽기
-    audio_bytes = await file.read()
-    if not audio_bytes:
-        raise HTTPException(status_code=400, detail="Empty audio file")
+#     # 1️⃣ 파일 bytes 읽기
+#     audio_bytes = await file.read()
+#     if not audio_bytes:
+#         raise HTTPException(status_code=400, detail="Empty audio file")
 
-    try:
-        # 2️⃣ Whisper 처리
-        result = transcribe_audio(audio_bytes, file.filename)
+#     try:
+#         # 2️⃣ Whisper 처리
+#         result = transcribe_audio(audio_bytes, file.filename)
 
-        return {
-            "text": result["text"],
-            "contains_chalkak": result["contains_chalkak"],
-        }
+#         return {
+#             "text": result["text"],
+#             "contains_chalkak": result["contains_chalkak"],
+#         }
 
-    except Exception as e:
-        print("🔥 Whisper STT Error:", repr(e))
-        raise HTTPException(status_code=400, detail="Invalid audio file")
+#     except Exception as e:
+#         print("🔥 Whisper STT Error:", repr(e))
+#         raise HTTPException(status_code=400, detail="Invalid audio file")

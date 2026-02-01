@@ -67,10 +67,11 @@ def transcribe_audio(file_bytes: bytes, filename: str):
             "text": text,
             "contains_chalkak": any(
                 kw in text
-                for kw in ["찰칵", "김치", "치즈", "브이", "사진", "촬영", "찰칵찰칵"]
+                for kw in ["찰칵", "김치", "치즈", "브이", "사진", "촬영", "칵찰",
+                           "영촬", "찰영", "차령", "차카", "찰카", "찰깍",
+                          "즈치", "치김", "진사", "이브"]
             ),
         }
-
     finally:
         # 5️⃣ 임시 파일 정리
         for p in (src_path, wav_path):

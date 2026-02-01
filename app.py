@@ -17,7 +17,7 @@ import logging
 from typing import Dict, List
 
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
-from whisper_stt import transcribe_audio
+# from whisper_stt import transcribe_audio
 
 # ==================================================
 # Logging
